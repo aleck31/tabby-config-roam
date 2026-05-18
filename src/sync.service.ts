@@ -4,12 +4,16 @@ import { debounceTime, filter } from 'rxjs/operators'
 import { Subscription } from 'rxjs'
 import * as crypto from 'crypto'
 import * as yaml from 'js-yaml'
-import { SyncAdapter, SyncMetadata } from './adapters/adapter.interface'
+import { SyncAdapter, Manifest, CategoryEntry } from './adapters/adapter.interface'
 import { S3Adapter } from './adapters/s3.adapter'
 import { SYNC_CATEGORIES, EXCLUDED_FIELDS } from './categories'
 import { generateDEK, encryptDEK, decryptDEK, encrypt, decrypt } from './crypto'
 
 export type SyncStatus = 'idle' | 'uploading' | 'downloading' | 'error'
+
+function sha256(s: string): string {
+  return crypto.createHash('sha256').update(s, 'utf-8').digest('hex')
+}
 
 export interface LogEntry {
   time: string
@@ -27,8 +31,11 @@ export class SyncService {
   private dek: Buffer | null = null
   private autoSyncSub: Subscription | null = null
   private syncInProgress = false
-  private lastSyncTimestamp = 0
+  /** Revision of the manifest this device last successfully synced with. */
+  private lastSyncRevision = 0
   private intervalHandle: any = null
+
+  private static readonly MANIFEST_VERSION = 1
 
   constructor(
     private config: ConfigService,
@@ -116,13 +123,29 @@ export class SyncService {
     this.syncInProgress = true
     this.status = 'uploading'
     try {
-      const fullConfig = yaml.load(this.config.readRaw()) as Record<string, any>
-      const metadata: SyncMetadata = {
-        timestamp: Date.now(),
-        deviceId: this.roamConfig.deviceId,
+      // Pull-before-push: refuse to clobber a remote revision we haven't seen.
+      // Exception: if remote was last written by *this* device, our cursor is just stale
+      // (e.g. process restart) — adopt the remote revision and proceed.
+      const remoteManifest = await this.adapter.downloadManifest()
+      if (remoteManifest && remoteManifest.revision > this.lastSyncRevision) {
+        if (remoteManifest.deviceId === this.roamConfig.deviceId) {
+          this.lastSyncRevision = remoteManifest.revision
+        } else {
+          this.log(`Upload skipped: remote revision ${remoteManifest.revision} is newer than known ${this.lastSyncRevision}. Pull first.`, 'error')
+          this.status = 'error'
+          this.lastError = 'Remote has newer changes — download before uploading.'
+          return
+        }
       }
+
+      const fullConfig = yaml.load(this.config.readRaw()) as Record<string, any>
+      const now = Date.now()
+      const deviceId: string = this.roamConfig.deviceId
       const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
       const passphrase = this.roamConfig.encryptionPassphrase
+      const newCategories: Record<string, CategoryEntry> = { ...(remoteManifest?.categories ?? {}) }
+      const uploaded: string[] = []
+      const skipped: string[] = []
 
       for (const category of enabledCategories) {
         const partial: Record<string, any> = {}
@@ -131,20 +154,45 @@ export class SyncService {
             partial[field] = fullConfig[field]
           }
         }
-        // Skip upload if local has nothing AND remote has nothing (avoid creating empty files)
-        if (Object.keys(partial).length === 0) {
-          const remoteMeta = await this.adapter.getRemoteMetadata(category.id)
-          if (!remoteMeta) continue // remote doesn't exist either, skip
+        const yamlBody = yaml.dump(partial)
+        const hash = sha256(yamlBody)
+        const prev = remoteManifest?.categories[category.id]
+
+        // Skip if remote already has this exact content
+        if (prev && prev.hash === hash) {
+          skipped.push(category.id)
+          newCategories[category.id] = prev
+          continue
         }
-        const raw = Buffer.from(yaml.dump(partial), 'utf-8')
+        // Don't create empty files for categories the user has never set
+        if (Object.keys(partial).length === 0 && !prev) {
+          continue
+        }
+
+        const raw = Buffer.from(yamlBody, 'utf-8')
         const data = passphrase ? encrypt(raw, await this.ensureDEK()) : raw
-        await this.adapter.upload(category.id, data, metadata)
+        await this.adapter.upload(category.id, data)
+        newCategories[category.id] = { hash, timestamp: now, deviceId }
+        uploaded.push(category.id)
       }
 
-      this.lastSyncTimestamp = metadata.timestamp
+      const nextManifest: Manifest = {
+        version: SyncService.MANIFEST_VERSION,
+        revision: (remoteManifest?.revision ?? 0) + 1,
+        encrypted: !!passphrase,
+        deviceId,
+        updatedAt: now,
+        categories: newCategories,
+      }
+      await this.adapter.uploadManifest(nextManifest)
+      this.lastSyncRevision = nextManifest.revision
+
       this.status = 'idle'
       this.lastError = null
-      this.log(`Upload complete (${enabledCategories.map(c => c.id).join(', ')})`, 'success')
+      const parts: string[] = []
+      if (uploaded.length) parts.push(`uploaded: ${uploaded.join(', ')}`)
+      if (skipped.length) parts.push(`unchanged: ${skipped.join(', ')}`)
+      this.log(`Upload complete (rev ${nextManifest.revision}; ${parts.join('; ') || 'no changes'})`, 'success')
     } catch (e: any) {
       this.status = 'error'
       this.lastError = e.message
@@ -165,18 +213,25 @@ export class SyncService {
     this.syncInProgress = true
     this.status = 'downloading'
     try {
+      const manifest = await this.adapter.downloadManifest()
+      if (!manifest) {
+        this.status = 'idle'
+        this.log('Download skipped: no manifest on remote (nothing has been uploaded yet).', 'info')
+        return
+      }
+
       const localRaw = yaml.load(this.config.readRaw()) as Record<string, any>
       const fullConfig: Record<string, any> = { ...localRaw }
       const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
-      let latestTimestamp = 0
-      const remoteEncrypted = !!(await this.adapter.downloadMasterKey())
+      const fetched: string[] = []
 
       for (const category of enabledCategories) {
-        const result = await this.adapter.download(category.id)
-        if (!result) continue
-        const raw = remoteEncrypted
-          ? decrypt(result.data, await this.ensureDEK()).toString('utf-8')
-          : result.data.toString('utf-8')
+        if (!manifest.categories[category.id]) continue
+        const bytes = await this.adapter.download(category.id)
+        if (!bytes) continue
+        const raw = manifest.encrypted
+          ? decrypt(bytes, await this.ensureDEK()).toString('utf-8')
+          : bytes.toString('utf-8')
 
         const partial = yaml.load(raw) as Record<string, any>
         if (partial && typeof partial === 'object') {
@@ -186,7 +241,7 @@ export class SyncService {
             }
           }
         }
-        latestTimestamp = Math.max(latestTimestamp, result.metadata.timestamp)
+        fetched.push(category.id)
       }
 
       // Preserve local-only fields from raw config (not proxy)
@@ -197,10 +252,10 @@ export class SyncService {
       }
 
       await this.config.writeRaw(yaml.dump(fullConfig))
-      this.lastSyncTimestamp = latestTimestamp
+      this.lastSyncRevision = manifest.revision
       this.status = 'idle'
       this.lastError = null
-      this.log(`Download complete (${enabledCategories.map(c => c.id).join(', ')})`, 'success')
+      this.log(`Download complete (rev ${manifest.revision}; ${fetched.join(', ') || 'no categories'})`, 'success')
     } catch (e: any) {
       this.status = 'error'
       this.lastError = e.message
@@ -210,36 +265,20 @@ export class SyncService {
     }
   }
 
-  /**
-   * Inspect remote vs local without writing anything. Returns true if remote
-   * has changes the caller hasn't seen yet (timestamp newer than lastSyncTimestamp).
-   */
+  /** Returns true if remote manifest has a newer revision than this device has seen. */
   async hasRemoteChanges(): Promise<boolean> {
     if (!this.adapter) this.adapter = this.createAdapter()
     if (!this.adapter) return false
-    const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
-    for (const category of enabledCategories) {
-      const remote = await this.adapter.getRemoteMetadata(category.id)
-      if (remote && remote.timestamp > this.lastSyncTimestamp) return true
-    }
-    return false
+    const manifest = await this.adapter.downloadManifest()
+    return !!manifest && manifest.revision > this.lastSyncRevision
   }
 
   async checkAndPull(): Promise<void> {
     if (!this.adapter || this.syncInProgress) return
     try {
-      const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
-      if (enabledCategories.length === 0) return
-      let maxTimestamp = 0
-      let remoteDeviceId = ''
-      for (const category of enabledCategories) {
-        const remote = await this.adapter.getRemoteMetadata(category.id)
-        if (remote && remote.timestamp > maxTimestamp) {
-          maxTimestamp = remote.timestamp
-          remoteDeviceId = remote.deviceId
-        }
-      }
-      if (maxTimestamp > this.lastSyncTimestamp && remoteDeviceId !== this.roamConfig.deviceId) {
+      const manifest = await this.adapter.downloadManifest()
+      if (!manifest) return
+      if (manifest.revision > this.lastSyncRevision && manifest.deviceId !== this.roamConfig.deviceId) {
         await this.download()
       }
     } catch {
@@ -254,8 +293,7 @@ export class SyncService {
         return { success: false, message: 'S3 not configured (check bucket, access key, secret key)' }
       }
       await adapter.writeTestFile()
-      // Verify read access too (404 returns null without throwing — only auth errors throw)
-      await adapter.getRemoteMetadata('profiles')
+      await adapter.probeReadAccess()
       return { success: true, message: 'Connection successful! Read/write verified.' }
     } catch (e: any) {
       return { success: false, message: e.message || 'Connection failed' }

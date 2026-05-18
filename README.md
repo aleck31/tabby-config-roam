@@ -7,7 +7,8 @@ Roam your [Tabby](https://github.com/Eugeny/tabby) config across devices via clo
 - **Category-based sync** — choose what to sync: profiles, vault, appearance, SSH settings, app settings
 - **AES-256-GCM encryption** — user-defined passphrase, PBKDF2 key derivation (100,000 iterations)
 - **Auto sync** — detects config changes and uploads automatically; periodic pull from remote
-- **Conflict detection** — timestamp + device ID based, prevents accidental overwrites
+- **Content-aware** — skips unchanged categories by hash, no wasted uploads
+- **Pull-before-push** — refuses to clobber remote changes from another device
 - **S3 compatible** — AWS S3, MinIO, Wasabi, DigitalOcean Spaces, Backblaze B2, Cloudflare R2, etc.
 
 ## Sync Categories
@@ -27,6 +28,7 @@ Each category is stored as a separate encrypted file on S3. You can enable/disab
 ```
 <prefix>/
 ├── README.txt       ← created by Test Connection
+├── manifest.json    ← plaintext: revision, per-category hashes, encryption flag
 ├── master.key       ← Data Encryption Key (encrypted by passphrase)
 ├── profiles.enc     ← SSH connections & groups
 ├── vault.enc        ← private keys & passwords
@@ -71,6 +73,7 @@ npm run build
 5. Click **Test Connection** → verify S3 is reachable
 6. Click **Save Settings**
 7. Click **Upload Now** (first device) or **Download Now** (second device)
+   - Download Now will prompt for confirmation since it overwrites local config
 8. Optionally enable **Auto Sync**
 
 ## How It Works
@@ -84,8 +87,19 @@ npm run build
 │             │ encrypt │ appearance.enc       │ decrypt │ config.yaml │
 │             │ upload  │ ssh.enc              │         │             │
 │             │         │ app.enc              │         │             │
+│             │  last ──▶ manifest.json        │         │             │
 └─────────────┘         └──────────────────────┘         └─────────────┘
 ```
+
+Each upload is gated by `manifest.json`:
+
+- **Skip unchanged**: each category's plaintext is hashed (sha256) and compared
+  to the hash recorded in the previous manifest. Identical content = no upload.
+- **Pull-before-push**: if the remote manifest's `revision` is ahead of what
+  this device last synced (and was written by a different device), upload is
+  refused with an error — download first to merge.
+- **Atomic-ish**: category files are written first, then `manifest.json` last.
+  Other devices only see a new revision after all category files are in place.
 
 ## Security
 
@@ -134,9 +148,9 @@ TABBY_PLUGINS=/path/to/tabby-config-roam tabby --debug
 ## Roadmap
 
 - [ ] Google Drive adapter
-- [ ] Selective field-level sync within categories
+- [ ] Selective field-level sync within categories (e.g. merge profiles by id)
 - [ ] Manual conflict resolution UI
-- [ ] Sync history / rollback
+- [ ] Sync history / rollback (leveraging manifest revisions)
 
 ## License
 
