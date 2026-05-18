@@ -3,6 +3,8 @@ import { ConfigService } from 'tabby-core'
 import { SyncService } from '../sync.service'
 import { SYNC_CATEGORIES } from '../categories'
 
+declare const PLUGIN_VERSION: string
+
 @Component({
   selector: 'sync-settings',
   template: `
@@ -175,7 +177,7 @@ import { SYNC_CATEGORIES } from '../categories'
               [class.badge-danger]="sync.status === 'error'">
           {{ sync.status }}
         </span>
-        <small class="text-muted">Device ID: {{ config.store.configRoam.deviceId }} | Plugin v0.1.0</small>
+        <small class="text-muted">Device ID: {{ config.store.configRoam.deviceId }} | Plugin v{{ version }}</small>
       </div>
 
       <div class="form-group text-danger" *ngIf="sync.lastError">
@@ -194,6 +196,7 @@ import { SYNC_CATEGORIES } from '../categories'
 })
 export class SyncSettingsComponent {
   activeTab = 'general'
+  version = PLUGIN_VERSION
   categories = SYNC_CATEGORIES
   testResult: { success: boolean; message: string } | null = null
   testing = false
@@ -269,7 +272,11 @@ export class SyncSettingsComponent {
     this.sync.upload()
   }
 
-  doDownload(): void {
+  async doDownload(): Promise<void> {
+    const confirmed = window.confirm(
+      'Download will overwrite your local Tabby config with remote data. Any local changes since the last sync will be lost. Continue?',
+    )
+    if (!confirmed) return
     this.sync.download()
   }
 }

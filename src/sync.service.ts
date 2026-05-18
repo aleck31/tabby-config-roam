@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core'
-import { ConfigService, PlatformService } from 'tabby-core'
+import { ConfigService } from 'tabby-core'
 import { debounceTime, filter } from 'rxjs/operators'
 import { Subscription } from 'rxjs'
 import * as crypto from 'crypto'
@@ -27,12 +27,11 @@ export class SyncService {
   private dek: Buffer | null = null
   private autoSyncSub: Subscription | null = null
   private syncInProgress = false
-  private internalSave = false
+  private lastSyncTimestamp = 0
   private intervalHandle: any = null
 
   constructor(
     private config: ConfigService,
-    private platform: PlatformService,
   ) {
     this.config.ready$.subscribe(() => {
       this.initDeviceId()
@@ -61,7 +60,7 @@ export class SyncService {
     if (this.roamConfig.autoSync) {
       this.autoSyncSub = this.config.changed$.pipe(
         debounceTime(3000),
-        filter(() => !this.syncInProgress && !this.internalSave),
+        filter(() => !this.syncInProgress),
       ).subscribe(() => this.upload())
 
       this.intervalHandle = setInterval(
@@ -89,13 +88,15 @@ export class SyncService {
     const passphrase = this.roamConfig.encryptionPassphrase
     if (!passphrase) throw new Error('Passphrase is required for encryption')
 
-    // Try to download existing master.key
     const masterKeyData = await this.adapter!.downloadMasterKey()
     if (masterKeyData) {
-      this.dek = decryptDEK(masterKeyData, passphrase)
+      try {
+        this.dek = decryptDEK(masterKeyData, passphrase)
+      } catch {
+        throw new Error('Passphrase does not match remote master key. Check your passphrase or use Change Passphrase to re-encrypt.')
+      }
       this.log('Master key loaded from remote', 'info')
     } else {
-      // First time: generate new DEK and upload
       this.dek = generateDEK()
       const encrypted = encryptDEK(this.dek, passphrase)
       await this.adapter!.uploadMasterKey(encrypted)
@@ -130,13 +131,17 @@ export class SyncService {
             partial[field] = fullConfig[field]
           }
         }
+        // Skip upload if local has nothing AND remote has nothing (avoid creating empty files)
+        if (Object.keys(partial).length === 0) {
+          const remoteMeta = await this.adapter.getRemoteMetadata(category.id)
+          if (!remoteMeta) continue // remote doesn't exist either, skip
+        }
         const raw = Buffer.from(yaml.dump(partial), 'utf-8')
         const data = passphrase ? encrypt(raw, await this.ensureDEK()) : raw
         await this.adapter.upload(category.id, data, metadata)
       }
 
-      this.config.store.configRoam.lastSyncTimestamp = metadata.timestamp
-      this.saveInternal()
+      this.lastSyncTimestamp = metadata.timestamp
       this.status = 'idle'
       this.lastError = null
       this.log(`Upload complete (${enabledCategories.map(c => c.id).join(', ')})`, 'success')
@@ -160,34 +165,39 @@ export class SyncService {
     this.syncInProgress = true
     this.status = 'downloading'
     try {
-      const fullConfig = yaml.load(this.config.readRaw()) as Record<string, any>
-      const passphrase = this.roamConfig.encryptionPassphrase
+      const localRaw = yaml.load(this.config.readRaw()) as Record<string, any>
+      const fullConfig: Record<string, any> = { ...localRaw }
       const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
       let latestTimestamp = 0
+      const remoteEncrypted = !!(await this.adapter.downloadMasterKey())
 
       for (const category of enabledCategories) {
         const result = await this.adapter.download(category.id)
         if (!result) continue
-        const raw = passphrase ? decrypt(result.data, await this.ensureDEK()).toString('utf-8') : result.data.toString('utf-8')
+        const raw = remoteEncrypted
+          ? decrypt(result.data, await this.ensureDEK()).toString('utf-8')
+          : result.data.toString('utf-8')
+
         const partial = yaml.load(raw) as Record<string, any>
-        for (const field of category.fields) {
-          if (partial[field] !== undefined) {
-            fullConfig[field] = partial[field]
+        if (partial && typeof partial === 'object') {
+          for (const field of category.fields) {
+            if (partial[field] !== undefined) {
+              fullConfig[field] = partial[field]
+            }
           }
         }
         latestTimestamp = Math.max(latestTimestamp, result.metadata.timestamp)
       }
 
-      // Preserve local-only fields
+      // Preserve local-only fields from raw config (not proxy)
       for (const field of EXCLUDED_FIELDS) {
-        if (this.config.store[field] !== undefined) {
-          fullConfig[field] = this.config.store[field]
+        if (localRaw[field] !== undefined) {
+          fullConfig[field] = localRaw[field]
         }
       }
 
       await this.config.writeRaw(yaml.dump(fullConfig))
-      this.config.store.configRoam.lastSyncTimestamp = latestTimestamp
-      this.saveInternal()
+      this.lastSyncTimestamp = latestTimestamp
       this.status = 'idle'
       this.lastError = null
       this.log(`Download complete (${enabledCategories.map(c => c.id).join(', ')})`, 'success')
@@ -198,6 +208,21 @@ export class SyncService {
     } finally {
       this.syncInProgress = false
     }
+  }
+
+  /**
+   * Inspect remote vs local without writing anything. Returns true if remote
+   * has changes the caller hasn't seen yet (timestamp newer than lastSyncTimestamp).
+   */
+  async hasRemoteChanges(): Promise<boolean> {
+    if (!this.adapter) this.adapter = this.createAdapter()
+    if (!this.adapter) return false
+    const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
+    for (const category of enabledCategories) {
+      const remote = await this.adapter.getRemoteMetadata(category.id)
+      if (remote && remote.timestamp > this.lastSyncTimestamp) return true
+    }
+    return false
   }
 
   async checkAndPull(): Promise<void> {
@@ -214,7 +239,7 @@ export class SyncService {
           remoteDeviceId = remote.deviceId
         }
       }
-      if (maxTimestamp > this.roamConfig.lastSyncTimestamp && remoteDeviceId !== this.roamConfig.deviceId) {
+      if (maxTimestamp > this.lastSyncTimestamp && remoteDeviceId !== this.roamConfig.deviceId) {
         await this.download()
       }
     } catch {
@@ -229,13 +254,15 @@ export class SyncService {
         return { success: false, message: 'S3 not configured (check bucket, access key, secret key)' }
       }
       await adapter.writeTestFile()
-      return { success: true, message: 'Connection successful! Test file written to S3.' }
+      // Verify read access too (404 returns null without throwing — only auth errors throw)
+      await adapter.getRemoteMetadata('profiles')
+      return { success: true, message: 'Connection successful! Read/write verified.' }
     } catch (e: any) {
       return { success: false, message: e.message || 'Connection failed' }
     }
   }
 
-  /** Re-encrypt master.key with new passphrase (call after passphrase change) */
+  /** Re-encrypt master.key with new passphrase */
   async reEncryptMasterKey(oldPassphrase: string, newPassphrase: string): Promise<void> {
     if (!this.adapter) this.adapter = this.createAdapter()
     if (!this.adapter) throw new Error('S3 not configured')
@@ -253,12 +280,6 @@ export class SyncService {
     await this.adapter.uploadMasterKey(reEncrypted)
     this.dek = dek
     this.log('Master key re-encrypted with new passphrase', 'success')
-  }
-
-  private saveInternal(): void {
-    this.internalSave = true
-    this.config.save()
-    setTimeout(() => this.internalSave = false, 500)
   }
 
   private log(message: string, level: 'info' | 'success' | 'error' = 'info'): void {

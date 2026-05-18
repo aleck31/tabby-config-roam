@@ -1,4 +1,6 @@
 const path = require('path')
+const webpack = require('webpack')
+const pkg = require('./package.json')
 
 module.exports = {
   target: 'node',
@@ -20,6 +22,11 @@ module.exports = {
       },
     ],
   },
+  plugins: [
+    new webpack.DefinePlugin({
+      PLUGIN_VERSION: JSON.stringify(pkg.version),
+    }),
+  ],
   externals: [
     /^@angular/,
     /^tabby-/,

@@ -9,7 +9,6 @@ export class SyncConfigProvider extends ConfigProvider {
       syncIntervalSeconds: 60,
       encryptionPassphrase: '',
       deviceId: '',
-      lastSyncTimestamp: 0,
       categories: {
         profiles: true,
         vault: true,
