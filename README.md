@@ -46,7 +46,7 @@ Search for `tabby-config-roam` in Settings → Plugins → Available.
 1. Build the plugin:
 
 ```bash
-git clone https://github.com/yourname/tabby-config-roam.git
+git clone https://github.com/aleck31/tabby-config-roam.git
 cd tabby-config-roam
 npm install
 npm run build
