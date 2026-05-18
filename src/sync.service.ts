@@ -300,6 +300,13 @@ export class SyncService {
     }
   }
 
+  /** True if a master.key exists on the remote (i.e. encryption was set up before). */
+  async remoteMasterKeyExists(): Promise<boolean> {
+    if (!this.adapter) this.adapter = this.createAdapter()
+    if (!this.adapter) return false
+    return !!(await this.adapter.downloadMasterKey())
+  }
+
   /** Re-encrypt master.key with new passphrase */
   async reEncryptMasterKey(oldPassphrase: string, newPassphrase: string): Promise<void> {
     if (!this.adapter) this.adapter = this.createAdapter()

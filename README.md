@@ -67,14 +67,17 @@ npm run build
 ## Configuration
 
 1. Open Tabby → Settings → **Config Roam** tab
-2. Fill in S3 credentials (Region, Bucket, Prefix, AK/SK)
-3. Set an encryption passphrase (required)
-4. Select which categories to sync
+2. Fill in S3 credentials (Region, Bucket, Prefix, AK/SK) — settings auto-save on change
+3. Set an encryption passphrase (recommended)
+4. Select which categories to sync in the **CATEGORIES** tab
 5. Click **Test Connection** → verify S3 is reachable
-6. Click **Save Settings**
-7. Click **Upload Now** (first device) or **Download Now** (second device)
-   - Download Now will prompt for confirmation since it overwrites local config
-8. Optionally enable **Auto Sync**
+6. Click **Upload Now** (first device) or **Download Now** (second device)
+7. Optionally enable **Auto Sync**
+
+### Setting Up a Second Device
+
+- **Option A**: Use **MAINTENANCE** → **Import Config** to load settings from a previously exported JSON file
+- **Option B**: Manually fill in the same S3 credentials and passphrase, then click **Download Now**
 
 ## How It Works
 
