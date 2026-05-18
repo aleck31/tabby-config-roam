@@ -27,6 +27,7 @@ export class SyncService {
   private dek: Buffer | null = null
   private autoSyncSub: Subscription | null = null
   private syncInProgress = false
+  private internalSave = false
   private intervalHandle: any = null
 
   constructor(
@@ -60,7 +61,7 @@ export class SyncService {
     if (this.roamConfig.autoSync) {
       this.autoSyncSub = this.config.changed$.pipe(
         debounceTime(3000),
-        filter(() => !this.syncInProgress),
+        filter(() => !this.syncInProgress && !this.internalSave),
       ).subscribe(() => this.upload())
 
       this.intervalHandle = setInterval(
@@ -129,14 +130,13 @@ export class SyncService {
             partial[field] = fullConfig[field]
           }
         }
-        if (Object.keys(partial).length === 0) continue
         const raw = Buffer.from(yaml.dump(partial), 'utf-8')
         const data = passphrase ? encrypt(raw, await this.ensureDEK()) : raw
         await this.adapter.upload(category.id, data, metadata)
       }
 
       this.config.store.configRoam.lastSyncTimestamp = metadata.timestamp
-      this.config.save()
+      this.saveInternal()
       this.status = 'idle'
       this.lastError = null
       this.log(`Upload complete (${enabledCategories.map(c => c.id).join(', ')})`, 'success')
@@ -187,7 +187,7 @@ export class SyncService {
 
       await this.config.writeRaw(yaml.dump(fullConfig))
       this.config.store.configRoam.lastSyncTimestamp = latestTimestamp
-      this.config.save()
+      this.saveInternal()
       this.status = 'idle'
       this.lastError = null
       this.log(`Download complete (${enabledCategories.map(c => c.id).join(', ')})`, 'success')
@@ -205,9 +205,16 @@ export class SyncService {
     try {
       const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
       if (enabledCategories.length === 0) return
-      const remote = await this.adapter.getRemoteMetadata(enabledCategories[0].id)
-      if (!remote) return
-      if (remote.timestamp > this.roamConfig.lastSyncTimestamp && remote.deviceId !== this.roamConfig.deviceId) {
+      let maxTimestamp = 0
+      let remoteDeviceId = ''
+      for (const category of enabledCategories) {
+        const remote = await this.adapter.getRemoteMetadata(category.id)
+        if (remote && remote.timestamp > maxTimestamp) {
+          maxTimestamp = remote.timestamp
+          remoteDeviceId = remote.deviceId
+        }
+      }
+      if (maxTimestamp > this.roamConfig.lastSyncTimestamp && remoteDeviceId !== this.roamConfig.deviceId) {
         await this.download()
       }
     } catch {
@@ -236,11 +243,22 @@ export class SyncService {
     const masterKeyData = await this.adapter.downloadMasterKey()
     if (!masterKeyData) throw new Error('No master key found on remote')
 
-    const dek = decryptDEK(masterKeyData, oldPassphrase)
+    let dek: Buffer
+    try {
+      dek = decryptDEK(masterKeyData, oldPassphrase)
+    } catch {
+      throw new Error('Old passphrase is incorrect')
+    }
     const reEncrypted = encryptDEK(dek, newPassphrase)
     await this.adapter.uploadMasterKey(reEncrypted)
     this.dek = dek
     this.log('Master key re-encrypted with new passphrase', 'success')
+  }
+
+  private saveInternal(): void {
+    this.internalSave = true
+    this.config.save()
+    setTimeout(() => this.internalSave = false, 500)
   }
 
   private log(message: string, level: 'info' | 'success' | 'error' = 'info'): void {

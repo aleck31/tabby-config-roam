@@ -1,12 +1,18 @@
 {
   "name": "tabby-config-roam",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Roam your Tabby config across devices via S3",
   "keywords": [
     "tabby-plugin"
   ],
   "author": "tabby-config-roam",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aleckx/tabby-config-roam"
+  },
   "main": "dist/index.js",
+  "files": ["dist", "package.json", "README.md"],
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch"
