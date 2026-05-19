@@ -71,6 +71,19 @@ declare const PLUGIN_VERSION: string
         </div>
       </div>
 
+      <div class="form-group">
+        <button class="btn btn-info" (click)="doTest()" [disabled]="testing">
+          {{ testing ? 'Testing...' : 'Test Connection' }}
+        </button>
+        <span *ngIf="testResult" class="ml-2"
+              [class.text-success]="testResult.success"
+              [class.text-danger]="!testResult.success">
+          {{ testResult.message }}
+        </span>
+      </div>
+
+      <hr>
+
       <h5>Encryption</h5>
 
       <div class="form-group">
@@ -78,39 +91,27 @@ declare const PLUGIN_VERSION: string
         <small *ngIf="!hasPassphrase()" class="text-warning">🔓 No passphrase set — data uploads in plaintext. Set one for defense-in-depth.</small>
       </div>
 
-      <div class="form-group row">
-        <div class="col-6" *ngIf="hasPassphrase()">
+      <div class="form-group row align-items-end">
+        <div class="col-4" *ngIf="hasPassphrase()">
           <label>Current Passphrase</label>
           <input type="password" class="form-control" [(ngModel)]="oldPassphrase"
                  placeholder="Required to change">
         </div>
-        <div class="col-6">
+        <div class="col-4">
           <label>{{ hasPassphrase() ? 'New Passphrase' : 'Passphrase' }}</label>
           <input type="password" class="form-control" [(ngModel)]="newPassphrase"
                  placeholder="Strongly recommended">
         </div>
+        <div class="col-auto">
+          <button class="btn btn-warning" (click)="doApplyPassphrase()" [disabled]="changingPassphrase || !newPassphrase">
+            {{ changingPassphrase ? 'Applying...' : (hasPassphrase() ? 'Change Passphrase' : 'Set Passphrase') }}
+          </button>
+        </div>
       </div>
-      <div class="form-group">
-        <button class="btn btn-warning" (click)="doApplyPassphrase()" [disabled]="changingPassphrase || !newPassphrase">
-          {{ changingPassphrase ? 'Applying...' : (hasPassphrase() ? 'Change Passphrase' : 'Set Passphrase') }}
-        </button>
-        <span *ngIf="passphraseResult" class="ml-2"
-              [class.text-success]="passphraseResult.success"
+      <div class="form-group" *ngIf="passphraseResult">
+        <span [class.text-success]="passphraseResult.success"
               [class.text-danger]="!passphraseResult.success">
           {{ passphraseResult.message }}
-        </span>
-      </div>
-
-      <hr>
-
-      <div class="form-group">
-        <button class="btn btn-info mr-2" (click)="doTest()" [disabled]="testing">
-          {{ testing ? 'Testing...' : 'Test Connection' }}
-        </button>
-        <span *ngIf="testResult" class="ml-2"
-              [class.text-success]="testResult.success"
-              [class.text-danger]="!testResult.success">
-          {{ testResult.message }}
         </span>
       </div>
 
