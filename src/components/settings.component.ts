@@ -11,6 +11,7 @@ declare const PLUGIN_VERSION: string
     <div class="form-group">
       <h3>Config Roam</h3>
       <small class="text-muted">Sync your Tabby config across devices via S3-compatible storage.</small>
+      <small *ngIf="autoSaved" class="text-success ml-2">✓ Saved</small>
     </div>
 
     <ul class="nav nav-tabs mb-3">
@@ -250,6 +251,7 @@ export class SyncSettingsComponent {
   categories = SYNC_CATEGORIES
   testResult: { success: boolean; message: string } | null = null
   testing = false
+  autoSaved = false
   importResult: { success: boolean; message: string } | null = null
   checkingUpdate = false
   updateResult: { hasUpdate: boolean; message: string } | null = null
@@ -280,6 +282,8 @@ export class SyncSettingsComponent {
 
   autoSave(): void {
     this.config.save()
+    this.autoSaved = true
+    setTimeout(() => this.autoSaved = false, 2000)
   }
 
   onToggle(): void {
