@@ -61,8 +61,14 @@ declare const PLUGIN_VERSION: string
       <div class="form-group row">
         <div class="col-6">
           <label>Secret Access Key</label>
-          <input type="password" class="form-control" [(ngModel)]="config.store.configRoam.s3.secretAccessKey"
-                 (ngModelChange)="autoSave()">
+          <div class="input-group">
+            <input [type]="showSecretKey ? 'text' : 'password'" class="form-control"
+                   [(ngModel)]="config.store.configRoam.s3.secretAccessKey" (ngModelChange)="autoSave()">
+            <button type="button" class="btn btn-secondary" (click)="showSecretKey = !showSecretKey"
+                    [title]="showSecretKey ? 'Hide' : 'Show'">
+              <i class="fas fa-fw" [class.fa-eye]="!showSecretKey" [class.fa-eye-slash]="showSecretKey"></i>
+            </button>
+          </div>
         </div>
         <div class="col-6">
           <label>Custom Endpoint <small class="text-muted">(optional)</small></label>
@@ -71,7 +77,7 @@ declare const PLUGIN_VERSION: string
         </div>
       </div>
 
-      <div class="form-group">
+      <div class="form-group mt-3">
         <button class="btn btn-info" (click)="doTest()" [disabled]="testing">
           {{ testing ? 'Testing...' : 'Test Connection' }}
         </button>
@@ -91,22 +97,32 @@ declare const PLUGIN_VERSION: string
         <small *ngIf="!hasPassphrase()" class="text-warning">🔓 No passphrase set — data uploads in plaintext. Set one for defense-in-depth.</small>
       </div>
 
-      <div class="form-group row align-items-end">
-        <div class="col-4" *ngIf="hasPassphrase()">
+      <div class="form-group d-flex align-items-end" style="gap: 1rem;">
+        <div *ngIf="hasPassphrase()" style="flex: 1 1 0; max-width: 280px;">
           <label>Current Passphrase</label>
-          <input type="password" class="form-control" [(ngModel)]="oldPassphrase"
-                 placeholder="Required to change">
+          <div class="input-group">
+            <input [type]="showOldPassphrase ? 'text' : 'password'" class="form-control"
+                   [(ngModel)]="oldPassphrase" placeholder="Required to change">
+            <button type="button" class="btn btn-secondary" (click)="showOldPassphrase = !showOldPassphrase"
+                    [title]="showOldPassphrase ? 'Hide' : 'Show'">
+              <i class="fas fa-fw" [class.fa-eye]="!showOldPassphrase" [class.fa-eye-slash]="showOldPassphrase"></i>
+            </button>
+          </div>
         </div>
-        <div class="col-4">
+        <div style="flex: 1 1 0; max-width: 280px;">
           <label>{{ hasPassphrase() ? 'New Passphrase' : 'Passphrase' }}</label>
-          <input type="password" class="form-control" [(ngModel)]="newPassphrase"
-                 placeholder="Strongly recommended">
+          <div class="input-group">
+            <input [type]="showNewPassphrase ? 'text' : 'password'" class="form-control"
+                   [(ngModel)]="newPassphrase" placeholder="Strongly recommended">
+            <button type="button" class="btn btn-secondary" (click)="showNewPassphrase = !showNewPassphrase"
+                    [title]="showNewPassphrase ? 'Hide' : 'Show'">
+              <i class="fas fa-fw" [class.fa-eye]="!showNewPassphrase" [class.fa-eye-slash]="showNewPassphrase"></i>
+            </button>
+          </div>
         </div>
-        <div class="col-auto">
-          <button class="btn btn-warning" (click)="doApplyPassphrase()" [disabled]="changingPassphrase || !newPassphrase">
-            {{ changingPassphrase ? 'Applying...' : (hasPassphrase() ? 'Change Passphrase' : 'Set Passphrase') }}
-          </button>
-        </div>
+        <button class="btn btn-warning" (click)="doApplyPassphrase()" [disabled]="changingPassphrase || !newPassphrase">
+          {{ changingPassphrase ? 'Applying...' : (hasPassphrase() ? 'Change Passphrase' : 'Set Passphrase') }}
+        </button>
       </div>
       <div class="form-group" *ngIf="passphraseResult">
         <span [class.text-success]="passphraseResult.success"
@@ -119,22 +135,22 @@ declare const PLUGIN_VERSION: string
         <hr>
         <h5>Sync</h5>
 
-        <div class="form-group row">
-          <div class="col-6">
-            <label>
-              <input type="checkbox" [(ngModel)]="config.store.configRoam.enabled" (ngModelChange)="onToggle()">
-              Enable Auto Sync
-            </label>
-          </div>
-          <div class="col-6" *ngIf="config.store.configRoam.enabled">
-            <label>Interval (seconds)</label>
-            <input type="number" class="form-control" [(ngModel)]="config.store.configRoam.syncIntervalSeconds"
-                   min="10" (ngModelChange)="autoSave()">
-          </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" [(ngModel)]="config.store.configRoam.enabled" (ngModelChange)="onToggle()">
+            Enable Auto Sync
+          </label>
         </div>
 
-        <div class="form-group">
-          <button class="btn btn-success mr-2" (click)="doUpload()"
+        <div class="form-group d-flex align-items-center" *ngIf="config.store.configRoam.enabled" style="gap: 0.5rem;">
+          <label class="mb-0">Interval (seconds)</label>
+          <input type="number" class="form-control" style="width: 100px;"
+                 [(ngModel)]="config.store.configRoam.syncIntervalSeconds"
+                 min="10" (ngModelChange)="autoSave()">
+        </div>
+
+        <div class="form-group d-flex align-items-center" style="gap: 0.5rem;">
+          <button class="btn btn-success" (click)="doUpload()"
                   [disabled]="sync.status === 'uploading' || sync.status === 'downloading'">
             Upload Now
           </button>
@@ -142,7 +158,7 @@ declare const PLUGIN_VERSION: string
                   [disabled]="sync.status === 'uploading' || sync.status === 'downloading'">
             Download Now
           </button>
-          <small class="text-muted ml-2">First device? Upload. Second device? Download.</small>
+          <small class="text-muted">First device? Upload. Second device? Download.</small>
         </div>
       </div>
     </div>
@@ -162,8 +178,8 @@ declare const PLUGIN_VERSION: string
     <div *ngIf="activeTab === 'export'">
       <h5>Plugin Info</h5>
       <div class="form-group">
-        <small class="text-muted">Version: v{{ version }}</small><br>
-        <small class="text-muted">Device ID: {{ config.store.configRoam.deviceId }}</small>
+        <small class="text-muted">Device ID: {{ config.store.configRoam.deviceId }}</small><br>
+        <small class="text-muted">Version: v{{ version }}</small>
       </div>
 
       <div class="form-group">
@@ -241,6 +257,9 @@ export class SyncSettingsComponent {
   newPassphrase = ''
   changingPassphrase = false
   passphraseResult: { success: boolean; message: string } | null = null
+  showSecretKey = false
+  showOldPassphrase = false
+  showNewPassphrase = false
 
   constructor(
     public config: ConfigService,
