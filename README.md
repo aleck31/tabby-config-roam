@@ -1,5 +1,7 @@
 # tabby-config-roam
 
+[![npm](https://img.shields.io/npm/v/tabby-config-roam)](https://www.npmjs.com/package/tabby-config-roam) [![license](https://img.shields.io/npm/l/tabby-config-roam)](LICENSE)
+
 Roam your [Tabby](https://github.com/Eugeny/tabby) config across devices via cloud storage.
 
 ## Features

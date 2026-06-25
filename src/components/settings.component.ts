@@ -153,13 +153,13 @@ declare const PLUGIN_VERSION: string
         <div class="form-group d-flex align-items-center" style="gap: 0.5rem;">
           <button class="btn btn-success" (click)="doUpload()"
                   [disabled]="sync.status === 'uploading' || sync.status === 'downloading'">
-            Upload Now
+            Push to Cloud
           </button>
           <button class="btn btn-warning" (click)="doDownload()"
                   [disabled]="sync.status === 'uploading' || sync.status === 'downloading'">
-            Download Now
+            Pull from Cloud
           </button>
-          <small class="text-muted">First device? Upload. Second device? Download.</small>
+          <small class="text-muted">Push replaces cloud with local. Pull replaces local with cloud.</small>
         </div>
       </div>
     </div>

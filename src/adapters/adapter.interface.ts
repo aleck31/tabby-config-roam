@@ -30,6 +30,7 @@ export interface SyncAdapter {
   download(categoryId: string): Promise<Buffer | null>
   uploadMasterKey(data: Buffer): Promise<void>
   downloadMasterKey(): Promise<Buffer | null>
+  deleteMasterKey(): Promise<void>
   uploadManifest(manifest: Manifest): Promise<void>
   downloadManifest(): Promise<Manifest | null>
   /** Probe read access without throwing on 404. Used by Test Connection. */

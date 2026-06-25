@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { SyncAdapter, Manifest } from './adapter.interface'
 
@@ -89,6 +89,13 @@ export class S3Adapter implements SyncAdapter {
 
   async downloadMasterKey(): Promise<Buffer | null> {
     return this.getBytes(this.getMasterKeyPath())
+  }
+
+  async deleteMasterKey(): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({
+      Bucket: this.config.bucket,
+      Key: this.getMasterKeyPath(),
+    }))
   }
 
   async upload(categoryId: string, data: Buffer): Promise<void> {

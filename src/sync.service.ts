@@ -31,6 +31,8 @@ export class SyncService {
   private dek: Buffer | null = null
   private autoSyncSub: Subscription | null = null
   private syncInProgress = false
+  private consecutiveFailures = 0
+  private static readonly MAX_FAILURES = 3
   /** Revision of the manifest this device last successfully synced with. */
   private lastSyncRevision = 0
   private intervalHandle: any = null
@@ -61,6 +63,7 @@ export class SyncService {
 
   start(): void {
     this.stop()
+    this.consecutiveFailures = 0
     this.adapter = this.createAdapter()
     if (!this.adapter) return
 
@@ -104,6 +107,11 @@ export class SyncService {
       }
       this.log('Master key loaded from remote', 'info')
     } else {
+      // Guard: if remote already has encrypted data, refuse to generate new key
+      const manifest = await this.adapter!.downloadManifest()
+      if (manifest?.encrypted) {
+        throw new Error('Remote has encrypted data but master.key is missing. Cannot generate new key — existing data would become unrecoverable. Re-upload from a device that has the correct passphrase, or delete remote data to start fresh.')
+      }
       this.dek = generateDEK()
       const encrypted = encryptDEK(this.dek, passphrase)
       await this.adapter!.uploadMasterKey(encrypted)
@@ -189,6 +197,7 @@ export class SyncService {
 
       this.status = 'idle'
       this.lastError = null
+      this.consecutiveFailures = 0
       const parts: string[] = []
       if (uploaded.length) parts.push(`uploaded: ${uploaded.join(', ')}`)
       if (skipped.length) parts.push(`unchanged: ${skipped.join(', ')}`)
@@ -255,11 +264,17 @@ export class SyncService {
       this.lastSyncRevision = manifest.revision
       this.status = 'idle'
       this.lastError = null
+      this.consecutiveFailures = 0
       this.log(`Download complete (rev ${manifest.revision}; ${fetched.join(', ') || 'no categories'})`, 'success')
     } catch (e: any) {
       this.status = 'error'
       this.lastError = e.message
+      this.consecutiveFailures++
       this.log(`Download failed: ${e.message}`, 'error')
+      if (this.consecutiveFailures >= SyncService.MAX_FAILURES) {
+        this.log('Auto sync paused after repeated failures. Fix the issue and re-enable.', 'error')
+        this.stop()
+      }
     } finally {
       this.syncInProgress = false
     }
@@ -275,6 +290,7 @@ export class SyncService {
 
   async checkAndPull(): Promise<void> {
     if (!this.adapter || this.syncInProgress) return
+    if (this.consecutiveFailures >= SyncService.MAX_FAILURES) return
     try {
       const manifest = await this.adapter.downloadManifest()
       if (!manifest) return
@@ -305,6 +321,51 @@ export class SyncService {
     if (!this.adapter) this.adapter = this.createAdapter()
     if (!this.adapter) return false
     return !!(await this.adapter.downloadMasterKey())
+  }
+
+  /** Remove encryption: decrypt all remote files and re-upload as plaintext */
+  async removeEncryption(currentPassphrase: string): Promise<void> {
+    if (!this.adapter) this.adapter = this.createAdapter()
+    if (!this.adapter) throw new Error('S3 not configured')
+
+    // Load DEK with provided passphrase
+    const masterKeyData = await this.adapter.downloadMasterKey()
+    if (!masterKeyData) throw new Error('No master key found — data may already be unencrypted')
+    let dek: Buffer
+    try {
+      dek = decryptDEK(masterKeyData, currentPassphrase)
+    } catch {
+      throw new Error('Passphrase is incorrect')
+    }
+
+    // Re-upload each category as plaintext
+    const manifest = await this.adapter.downloadManifest()
+    if (!manifest) throw new Error('No manifest found on remote')
+    const enabledCategories = SYNC_CATEGORIES.filter(c => manifest.categories[c.id])
+
+    for (const category of enabledCategories) {
+      const bytes = await this.adapter.download(category.id)
+      if (!bytes) continue
+      const plaintext = decrypt(bytes, dek)
+      await this.adapter.upload(category.id, plaintext)
+    }
+
+    // Delete master.key
+    await this.adapter.deleteMasterKey()
+
+    // Update manifest
+    manifest.encrypted = false
+    manifest.revision++
+    manifest.updatedAt = Date.now()
+    manifest.deviceId = this.roamConfig.deviceId
+    await this.adapter.uploadManifest(manifest)
+    this.lastSyncRevision = manifest.revision
+
+    // Clear local state
+    this.dek = null
+    this.config.store.configRoam.encryptionPassphrase = ''
+    this.config.save()
+    this.log('Encryption removed. All remote data is now plaintext.', 'success')
   }
 
   /** Re-encrypt master.key with new passphrase */
