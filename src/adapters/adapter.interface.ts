@@ -31,6 +31,8 @@ export interface SyncAdapter {
   uploadMasterKey(data: Buffer): Promise<void>
   downloadMasterKey(): Promise<Buffer | null>
   deleteMasterKey(): Promise<void>
+  deleteObject(key: string): Promise<void>
+  deleteManifest(): Promise<void>
   uploadManifest(manifest: Manifest): Promise<void>
   downloadManifest(): Promise<Manifest | null>
   /** Probe read access without throwing on 404. Used by Test Connection. */

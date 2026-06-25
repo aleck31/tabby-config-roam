@@ -98,6 +98,20 @@ export class S3Adapter implements SyncAdapter {
     }))
   }
 
+  async deleteObject(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({
+      Bucket: this.config.bucket,
+      Key: `${this.normalizePrefix()}${key}`,
+    }))
+  }
+
+  async deleteManifest(): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({
+      Bucket: this.config.bucket,
+      Key: this.getManifestPath(),
+    }))
+  }
+
   async upload(categoryId: string, data: Buffer): Promise<void> {
     await this.client.send(new PutObjectCommand({
       Bucket: this.config.bucket,

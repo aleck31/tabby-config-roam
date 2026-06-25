@@ -120,7 +120,7 @@ export class SyncService {
     return this.dek
   }
 
-  async upload(): Promise<void> {
+  async upload(force = false): Promise<void> {
     if (this.syncInProgress) return
     if (!this.adapter) this.adapter = this.createAdapter()
     if (!this.adapter) {
@@ -135,13 +135,13 @@ export class SyncService {
       // Exception: if remote was last written by *this* device, our cursor is just stale
       // (e.g. process restart) — adopt the remote revision and proceed.
       const remoteManifest = await this.adapter.downloadManifest()
-      if (remoteManifest && remoteManifest.revision > this.lastSyncRevision) {
+      if (!force && remoteManifest && remoteManifest.revision > this.lastSyncRevision) {
         if (remoteManifest.deviceId === this.roamConfig.deviceId) {
           this.lastSyncRevision = remoteManifest.revision
         } else {
-          this.log(`Upload skipped: remote revision ${remoteManifest.revision} is newer than known ${this.lastSyncRevision}. Pull first.`, 'error')
+          this.log(`Remote has newer changes (rev ${remoteManifest.revision}). Use Push to Cloud to overwrite, or Pull from Cloud to accept remote.`, 'error')
           this.status = 'error'
-          this.lastError = 'Remote has newer changes — download before uploading.'
+          this.lastError = 'Remote has newer changes — Pull from Cloud to accept, or Push again to overwrite.'
           return
         }
       }
@@ -291,6 +291,7 @@ export class SyncService {
   async checkAndPull(): Promise<void> {
     if (!this.adapter || this.syncInProgress) return
     if (this.consecutiveFailures >= SyncService.MAX_FAILURES) return
+    if (this.status === 'error') return // Don't auto-pull during conflict
     try {
       const manifest = await this.adapter.downloadManifest()
       if (!manifest) return
@@ -321,6 +322,22 @@ export class SyncService {
     if (!this.adapter) this.adapter = this.createAdapter()
     if (!this.adapter) return false
     return !!(await this.adapter.downloadMasterKey())
+  }
+
+  /** Delete all remote sync files. Local config is untouched. */
+  async clearRemote(): Promise<void> {
+    if (!this.adapter) this.adapter = this.createAdapter()
+    if (!this.adapter) throw new Error('S3 not configured')
+
+    const enabledCategories = SYNC_CATEGORIES.filter(c => this.roamConfig.categories[c.id])
+    for (const category of enabledCategories) {
+      await this.adapter.deleteObject(category.id + '.enc')
+    }
+    await this.adapter.deleteMasterKey()
+    await this.adapter.deleteManifest()
+    this.dek = null
+    this.lastSyncRevision = 0
+    this.log('Cloud data cleared', 'success')
   }
 
   /** Remove encryption: decrypt all remote files and re-upload as plaintext */

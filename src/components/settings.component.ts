@@ -132,6 +132,23 @@ declare const PLUGIN_VERSION: string
         </span>
       </div>
 
+      <div class="form-group" *ngIf="hasPassphrase()">
+        <hr>
+        <label>Remove Encryption</label>
+        <div class="d-flex align-items-center" style="gap: 0.5rem;">
+          <input type="password" class="form-control" style="max-width: 250px;"
+                 [(ngModel)]="removePassphrase" placeholder="Current passphrase to confirm">
+          <button class="btn btn-danger btn-sm" (click)="doRemoveEncryption()" [disabled]="removingEncryption || !removePassphrase">
+            {{ removingEncryption ? 'Removing...' : 'Remove Encryption' }}
+          </button>
+        </div>
+        <span *ngIf="removeResult" class="mt-1"
+              [class.text-success]="removeResult.success"
+              [class.text-danger]="!removeResult.success">
+          {{ removeResult.message }}
+        </span>
+      </div>
+
       <div *ngIf="isConfigured()">
         <hr>
         <h5>Sync</h5>
@@ -151,9 +168,9 @@ declare const PLUGIN_VERSION: string
         </div>
 
         <div class="form-group d-flex align-items-center" style="gap: 0.5rem;">
-          <button class="btn btn-success" (click)="doUpload()"
+          <button [class]="confirmOverwrite ? 'btn btn-danger' : 'btn btn-success'" (click)="doUpload()"
                   [disabled]="sync.status === 'uploading' || sync.status === 'downloading'">
-            Push to Cloud
+            {{ confirmOverwrite ? 'Confirm Overwrite' : 'Push to Cloud' }}
           </button>
           <button class="btn btn-warning" (click)="doDownload()"
                   [disabled]="sync.status === 'uploading' || sync.status === 'downloading'">
@@ -218,6 +235,21 @@ declare const PLUGIN_VERSION: string
       <div class="form-group text-warning mt-3">
         ⚠️ The exported file may contain sensitive data (S3 credentials, encryption passphrase). Store it securely.
       </div>
+
+      <hr>
+
+      <h5>Clear Cloud Data</h5>
+      <p><small>Deletes all synced files from cloud (categories, master key, manifest). Local config is not affected.</small></p>
+      <div class="form-group">
+        <button class="btn btn-danger" (click)="doClearCloud()" [disabled]="clearingCloud">
+          {{ clearingCloud ? 'Clearing...' : 'Clear Cloud Data' }}
+        </button>
+        <span *ngIf="clearResult" class="ml-2"
+              [class.text-success]="clearResult.success"
+              [class.text-danger]="!clearResult.success">
+          {{ clearResult.message }}
+        </span>
+      </div>
     </div>
 
     <!-- LOGS TAB -->
@@ -258,6 +290,13 @@ export class SyncSettingsComponent {
   oldPassphrase = ''
   newPassphrase = ''
   changingPassphrase = false
+  removePassphrase = ''
+  removingEncryption = false
+  removeResult: { success: boolean; message: string } | null = null
+  clearingCloud = false
+  clearResult: { success: boolean; message: string } | null = null
+  confirmOverwrite = false
+  private confirmTimer: any = null
   passphraseResult: { success: boolean; message: string } | null = null
   showSecretKey = false
   showOldPassphrase = false
@@ -446,8 +485,50 @@ export class SyncSettingsComponent {
     input.click()
   }
 
-  doUpload(): void {
-    this.sync.upload()
+  async doRemoveEncryption(): Promise<void> {
+    this.removingEncryption = true
+    this.removeResult = null
+    try {
+      await this.sync.removeEncryption(this.removePassphrase)
+      this.removePassphrase = ''
+      this.removeResult = { success: true, message: 'Encryption removed. Remote data is now plaintext.' }
+    } catch (e: any) {
+      this.removeResult = { success: false, message: e.message || 'Failed to remove encryption' }
+    } finally {
+      this.removingEncryption = false
+    }
+  }
+
+  async doClearCloud(): Promise<void> {
+    this.clearingCloud = true
+    this.clearResult = null
+    try {
+      await this.sync.clearRemote()
+      this.clearResult = { success: true, message: 'Cloud data cleared. You can now Push to Cloud to start fresh.' }
+    } catch (e: any) {
+      this.clearResult = { success: false, message: e.message || 'Failed to clear cloud data' }
+    } finally {
+      this.clearingCloud = false
+    }
+  }
+
+  async doUpload(): Promise<void> {
+    if (this.confirmOverwrite) {
+      // Second click: force push
+      clearTimeout(this.confirmTimer)
+      this.confirmOverwrite = false
+      this.sync.upload(true)
+      return
+    }
+    // First click: check if there's a conflict
+    const hasRemote = await this.sync.hasRemoteChanges()
+    if (hasRemote) {
+      // Show confirm state
+      this.confirmOverwrite = true
+      this.confirmTimer = setTimeout(() => this.confirmOverwrite = false, 5000)
+    } else {
+      this.sync.upload()
+    }
   }
 
   async doDownload(): Promise<void> {

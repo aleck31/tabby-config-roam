@@ -73,13 +73,19 @@ npm run build
 3. Set an encryption passphrase (recommended)
 4. Select which categories to sync in the **CATEGORIES** tab
 5. Click **Test Connection** → verify S3 is reachable
-6. Click **Upload Now** (first device) or **Download Now** (second device)
+6. Click **Push to Cloud** (first device) or **Pull from Cloud** (second device)
 7. Optionally enable **Auto Sync**
 
 ### Setting Up a Second Device
 
 - **Option A**: Use **MAINTENANCE** → **Import Config** to load settings from a previously exported JSON file
-- **Option B**: Manually fill in the same S3 credentials and passphrase, then click **Download Now**
+- **Option B**: Manually fill in the same S3 credentials and passphrase, then click **Pull from Cloud**
+
+### Maintenance
+
+- **Export / Import Config** — transfer plugin settings between devices via JSON file
+- **Clear Cloud Data** — delete all remote sync files to start fresh
+- **Check for Update** — verify you're on the latest plugin version
 
 ## How It Works
 
@@ -105,6 +111,9 @@ Each upload is gated by `manifest.json`:
   refused with an error — download first to merge.
 - **Atomic-ish**: category files are written first, then `manifest.json` last.
   Other devices only see a new revision after all category files are in place.
+- **Conflict safety**: when a push is refused, auto-pull is paused to avoid
+  overwriting local changes. The user can manually choose "Push to Cloud"
+  (which shows a red "Confirm Overwrite" button) or "Pull from Cloud".
 
 ## Security
 
@@ -121,6 +130,7 @@ Passphrase → PBKDF2 → KEK (Key Encryption Key)
 ```
 
 - **Changing passphrase** only re-encrypts `master.key` (~seconds), data files are untouched
+- **Removing encryption** decrypts all remote files and deletes `master.key`
 - Passphrase never leaves your device — only the derived KEK is used
 - Each category file is independently encrypted with AES-256-GCM
 - Passphrase is optional — without it, data is uploaded in plain text (warning shown in UI)
@@ -145,6 +155,7 @@ Set the **Custom Endpoint** field:
 npm install
 npm run build        # production build
 npm run dev          # watch mode
+npm test             # run unit tests
 
 # Test in Tabby with debug mode
 TABBY_PLUGINS=/path/to/tabby-config-roam tabby --debug
