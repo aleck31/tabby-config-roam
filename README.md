@@ -134,6 +134,7 @@ Passphrase → PBKDF2 → KEK (Key Encryption Key)
 - Passphrase never leaves your device — only the derived KEK is used
 - Each category file is independently encrypted with AES-256-GCM
 - Passphrase is optional — without it, data is uploaded in plain text (warning shown in UI)
+- Passphrase must be ≥ 6 ASCII characters (spaces allowed, e.g. `my cat has 3 legs`)
 - Works alongside Tabby's built-in vault encryption (double encryption for secrets)
 - Plugin config (`configRoam` key) is never synced to remote
 

@@ -103,7 +103,7 @@ declare const PLUGIN_VERSION: string
           <label>Current Passphrase</label>
           <div class="input-group">
             <input [type]="showOldPassphrase ? 'text' : 'password'" class="form-control"
-                   [(ngModel)]="oldPassphrase" placeholder="Required to change">
+                   [(ngModel)]="oldPassphrase" placeholder="Required to change or remove">
             <button type="button" class="btn btn-secondary" (click)="showOldPassphrase = !showOldPassphrase"
                     [title]="showOldPassphrase ? 'Hide' : 'Show'">
               <i class="fas fa-fw" [class.fa-eye]="!showOldPassphrase" [class.fa-eye-slash]="showOldPassphrase"></i>
@@ -114,7 +114,7 @@ declare const PLUGIN_VERSION: string
           <label>{{ hasPassphrase() ? 'New Passphrase' : 'Passphrase' }}</label>
           <div class="input-group">
             <input [type]="showNewPassphrase ? 'text' : 'password'" class="form-control"
-                   [(ngModel)]="newPassphrase" placeholder="Strongly recommended">
+                   [(ngModel)]="newPassphrase" placeholder="A memorable phrase, e.g. my cat has 3 legs">
             <button type="button" class="btn btn-secondary" (click)="showNewPassphrase = !showNewPassphrase"
                     [title]="showNewPassphrase ? 'Hide' : 'Show'">
               <i class="fas fa-fw" [class.fa-eye]="!showNewPassphrase" [class.fa-eye-slash]="showNewPassphrase"></i>
@@ -124,6 +124,10 @@ declare const PLUGIN_VERSION: string
         <button class="btn btn-warning" (click)="doApplyPassphrase()" [disabled]="changingPassphrase || !newPassphrase">
           {{ changingPassphrase ? 'Applying...' : (hasPassphrase() ? 'Change Passphrase' : 'Set Passphrase') }}
         </button>
+        <button *ngIf="hasPassphrase()" class="btn btn-danger btn-sm" (click)="doRemoveEncryption()"
+                [disabled]="removingEncryption || !oldPassphrase">
+          {{ removingEncryption ? 'Removing...' : 'Remove Encryption' }}
+        </button>
       </div>
       <div class="form-group" *ngIf="passphraseResult">
         <span [class.text-success]="passphraseResult.success"
@@ -131,19 +135,8 @@ declare const PLUGIN_VERSION: string
           {{ passphraseResult.message }}
         </span>
       </div>
-
-      <div class="form-group" *ngIf="hasPassphrase()">
-        <hr>
-        <label>Remove Encryption</label>
-        <div class="d-flex align-items-center" style="gap: 0.5rem;">
-          <input type="password" class="form-control" style="max-width: 250px;"
-                 [(ngModel)]="removePassphrase" placeholder="Current passphrase to confirm">
-          <button class="btn btn-danger btn-sm" (click)="doRemoveEncryption()" [disabled]="removingEncryption || !removePassphrase">
-            {{ removingEncryption ? 'Removing...' : 'Remove Encryption' }}
-          </button>
-        </div>
-        <span *ngIf="removeResult" class="mt-1"
-              [class.text-success]="removeResult.success"
+      <div class="form-group" *ngIf="removeResult">
+        <span [class.text-success]="removeResult.success"
               [class.text-danger]="!removeResult.success">
           {{ removeResult.message }}
         </span>
@@ -290,7 +283,6 @@ export class SyncSettingsComponent {
   oldPassphrase = ''
   newPassphrase = ''
   changingPassphrase = false
-  removePassphrase = ''
   removingEncryption = false
   removeResult: { success: boolean; message: string } | null = null
   clearingCloud = false
@@ -343,6 +335,14 @@ export class SyncSettingsComponent {
       this.passphraseResult = { success: false, message: 'New passphrase is required.' }
       return
     }
+    if (this.newPassphrase.length < 6) {
+      this.passphraseResult = { success: false, message: 'Passphrase must be at least 6 characters.' }
+      return
+    }
+    if (!/^[\x20-\x7E]+$/.test(this.newPassphrase)) {
+      this.passphraseResult = { success: false, message: 'Passphrase must contain only ASCII characters (letters, numbers, symbols).' }
+      return
+    }
     if (this.hasPassphrase() && !this.oldPassphrase) {
       this.passphraseResult = { success: false, message: 'Current passphrase is required to change it.' }
       return
@@ -382,7 +382,7 @@ export class SyncSettingsComponent {
           this.sync.stop()
           this.sync.start()
         }
-        this.passphraseResult = { success: true, message: 'Passphrase set. Master key will be created on next upload.' }
+        this.passphraseResult = { success: true, message: 'Passphrase set. Encryption will be applied on next Push to Cloud.' }
       }
       this.oldPassphrase = ''
       this.newPassphrase = ''
@@ -489,8 +489,8 @@ export class SyncSettingsComponent {
     this.removingEncryption = true
     this.removeResult = null
     try {
-      await this.sync.removeEncryption(this.removePassphrase)
-      this.removePassphrase = ''
+      await this.sync.removeEncryption(this.oldPassphrase)
+      this.oldPassphrase = ''
       this.removeResult = { success: true, message: 'Encryption removed. Remote data is now plaintext.' }
     } catch (e: any) {
       this.removeResult = { success: false, message: e.message || 'Failed to remove encryption' }

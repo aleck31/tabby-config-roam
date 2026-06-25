@@ -345,9 +345,17 @@ export class SyncService {
     if (!this.adapter) this.adapter = this.createAdapter()
     if (!this.adapter) throw new Error('S3 not configured')
 
-    // Load DEK with provided passphrase
     const masterKeyData = await this.adapter.downloadMasterKey()
-    if (!masterKeyData) throw new Error('No master key found — data may already be unencrypted')
+    if (!masterKeyData) {
+      // No master.key on remote — just clear local passphrase
+      this.dek = null
+      this.config.store.configRoam.encryptionPassphrase = ''
+      this.config.save()
+      this.log('Passphrase cleared (no remote encryption to remove).', 'success')
+      return
+    }
+
+    // Load DEK with provided passphrase
     let dek: Buffer
     try {
       dek = decryptDEK(masterKeyData, currentPassphrase)
