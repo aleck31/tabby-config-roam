@@ -9,9 +9,11 @@ declare const PLUGIN_VERSION: string
   selector: 'sync-settings',
   template: `
     <div class="form-group">
-      <h3>Config Roam</h3>
+      <div class="d-flex justify-content-between align-items-center">
+        <h3 class="mb-0">Config Roam</h3>
+        <small *ngIf="autoSaved" class="text-success" style="opacity: 0.9;">✓ Saved</small>
+      </div>
       <small class="text-muted">Sync your Tabby config across devices via S3-compatible storage.</small>
-      <small *ngIf="autoSaved" class="text-success ml-2">✓ Saved</small>
     </div>
 
     <ul class="nav nav-tabs mb-3">
@@ -98,8 +100,8 @@ declare const PLUGIN_VERSION: string
         <small *ngIf="!hasPassphrase()" class="text-warning">🔓 No passphrase set — data uploads in plaintext. Set one for defense-in-depth.</small>
       </div>
 
-      <div class="form-group d-flex align-items-end" style="gap: 1rem;">
-        <div *ngIf="hasPassphrase()" style="flex: 1 1 0; max-width: 280px;">
+      <div class="form-group row">
+        <div *ngIf="hasPassphrase()" class="col-6">
           <label>Current Passphrase</label>
           <div class="input-group">
             <input [type]="showOldPassphrase ? 'text' : 'password'" class="form-control"
@@ -110,7 +112,7 @@ declare const PLUGIN_VERSION: string
             </button>
           </div>
         </div>
-        <div style="flex: 1 1 0; max-width: 280px;">
+        <div class="col-6">
           <label>{{ hasPassphrase() ? 'New Passphrase' : 'Passphrase' }}</label>
           <div class="input-group">
             <input [type]="showNewPassphrase ? 'text' : 'password'" class="form-control"
@@ -121,10 +123,13 @@ declare const PLUGIN_VERSION: string
             </button>
           </div>
         </div>
+      </div>
+
+      <div class="form-group d-flex align-items-center" style="gap: 0.5rem; margin-top: 0.75rem;">
         <button class="btn btn-warning" (click)="doApplyPassphrase()" [disabled]="changingPassphrase || !newPassphrase">
           {{ changingPassphrase ? 'Applying...' : (hasPassphrase() ? 'Change Passphrase' : 'Set Passphrase') }}
         </button>
-        <button *ngIf="hasPassphrase()" class="btn btn-danger btn-sm" (click)="doRemoveEncryption()"
+        <button *ngIf="hasPassphrase()" class="btn btn-outline-danger" (click)="doRemoveEncryption()"
                 [disabled]="removingEncryption || !oldPassphrase">
           {{ removingEncryption ? 'Removing...' : 'Remove Encryption' }}
         </button>
@@ -146,18 +151,17 @@ declare const PLUGIN_VERSION: string
         <hr>
         <h5>Sync</h5>
 
-        <div class="form-group">
-          <label>
+        <div class="form-group d-flex align-items-center" style="gap: 1rem;">
+          <label class="mb-0">
             <input type="checkbox" [(ngModel)]="config.store.configRoam.enabled" (ngModelChange)="onToggle()">
             Enable Auto Sync
           </label>
-        </div>
-
-        <div class="form-group d-flex align-items-center" *ngIf="config.store.configRoam.enabled" style="gap: 0.5rem;">
-          <label class="mb-0">Interval (seconds)</label>
-          <input type="number" class="form-control" style="width: 100px;"
-                 [(ngModel)]="config.store.configRoam.syncIntervalSeconds"
-                 min="10" (ngModelChange)="autoSave()">
+          <div *ngIf="config.store.configRoam.enabled" class="d-flex align-items-center" style="gap: 0.5rem;">
+            <label class="mb-0">Interval (seconds)</label>
+            <input type="number" class="form-control" style="width: 80px;"
+                   [(ngModel)]="config.store.configRoam.syncIntervalSeconds"
+                   min="10" (ngModelChange)="autoSave()">
+          </div>
         </div>
 
         <div class="form-group d-flex align-items-center" style="gap: 0.5rem;">
@@ -177,10 +181,10 @@ declare const PLUGIN_VERSION: string
     <!-- CATEGORIES TAB -->
     <div *ngIf="activeTab === 'categories'">
       <p class="text-muted">Select which config categories to sync. All enabled by default.</p>
-      <div class="form-group" *ngFor="let cat of categories">
-        <label>
+      <div class="form-group" *ngFor="let cat of categories" style="margin-bottom: 0.75rem;">
+        <label style="display: flex; align-items: center; gap: 0.5rem;">
           <input type="checkbox" [(ngModel)]="config.store.configRoam.categories[cat.id]" (ngModelChange)="autoSave()">
-          <strong>{{ cat.id | titlecase }}</strong> — {{ cat.label }}
+          <span><strong>{{ cat.id | titlecase }}</strong> — {{ cat.label }}</span>
         </label>
       </div>
     </div>
